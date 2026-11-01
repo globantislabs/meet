@@ -126,8 +126,8 @@ services:
       - key: PARTICIPANT_TOKEN_SECRET
         sync: false          # must equal the value generated for vb-api
 
-# ── Key Value (Redis-compatible): room leases + events ─────────────────
-keyvalue:
-  - name: vb-cache
+  # ── Key Value (Redis-compatible): room leases + events ─────────────────
+  - type: keyvalue
+    name: vb-cache
     plan: starter
     maxmemoryPolicy: noeviction
