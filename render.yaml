@@ -124,8 +124,7 @@ services:
 
 databases:
   - name: vb-postgres
-    plan: basic-256mb
-    postgresMajorVersion: "16"
+    plan: basic-256mb   # Render provisions its default Postgres major version
 
 keyvalue:
   - name: vb-cache
