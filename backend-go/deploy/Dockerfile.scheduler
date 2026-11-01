@@ -1,0 +1,18 @@
+# Dockerfile.scheduler — room assignment service image (pure Go, no CGO).
+# Build:  docker build -f deploy/Dockerfile.scheduler -t voicebridge-scheduler .
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+
+RUN apk add --no-cache git ca-certificates
+COPY go.mod go.sum* ./
+RUN go mod download || true
+
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /out/scheduler ./cmd/scheduler
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/scheduler /usr/local/bin/scheduler
+
+USER nobody
+ENTRYPOINT ["/usr/local/bin/scheduler"]

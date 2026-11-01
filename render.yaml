@@ -1,0 +1,133 @@
+# render.yaml — Render blueprint for the VoiceBridge backend (repo root).
+# Frontend deploys on Vercel separately (see README "Deploy" section).
+#
+# Apply with:  render blueprint launch   (or "New → Blueprint" in the dashboard)
+#
+# Docker contexts point at ./backend-go; Dockerfiles live in
+# backend-go/deploy/. NOTE: internal metric namespaces may carry the
+# translation provider's codename; the PRODUCT (UI, branding) never does.
+services:
+  # ── Control-plane HTTP API ─────────────────────────────────────────────────
+  - type: web
+    name: vb-api
+    runtime: docker
+    dockerfilePath: ./backend-go/deploy/Dockerfile.api
+    dockerContext: ./backend-go
+    healthCheckPath: /v1/health
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: HTTP_ADDR
+        value: :8080
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: LIVEKIT_HOST
+        sync: false   # e.g. wss://your-project.livekit.cloud
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: PARTICIPANT_TOKEN_SECRET
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false   # your Vercel domain(s), comma separated
+      - key: PUBLIC_BASE_URL
+        sync: false   # https://your-frontend.vercel.app
+      - key: MAX_ROOM_SIZE
+        value: "8"
+      - key: RATE_LIMIT_RPS
+        value: "2"
+      - key: RATE_LIMIT_BURST
+        value: "10"
+
+  # ── Media worker (translation pipeline; NO public HTTP port) ───────────────
+  - type: worker
+    name: vb-worker
+    runtime: docker
+    dockerfilePath: ./backend-go/deploy/Dockerfile.worker
+    dockerContext: ./backend-go
+    plan: standard          # audio pipeline: prefer >= 1 vCPU / 2 GB
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: LIVEKIT_HOST
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      # Translation provider S2S credentials (server-side only)
+      - key: PALABRA_CLIENT_ID
+        sync: false
+      - key: PALABRA_CLIENT_SECRET
+        sync: false
+      - key: PALABRA_WS_ENDPOINT
+        value: wss://wss.palabra.ai/ws/
+      - key: PALABRA_AUTH_ENDPOINT
+        value: https://auth.palabra.ai/access-token
+      - key: PALABRA_SESSION_LIMIT
+        value: "64"
+      - key: PARTICIPANT_TOKEN_SECRET
+        sync: false   # MUST match vb-api's value
+      - key: WORKER_ID
+        value: worker-render-1
+      - key: MAX_ROOM_SIZE
+        value: "8"
+
+  # ── Room scheduler (lease-based room→worker assignment) ────────────────────
+  - type: worker
+    name: vb-scheduler
+    runtime: docker
+    dockerfilePath: ./backend-go/deploy/Dockerfile.scheduler
+    dockerContext: ./backend-go
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: WORKER_HEARTBEAT_TTL
+        value: 30s
+
+databases:
+  - name: vb-postgres
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+keyvalue:
+  - name: vb-cache
+    plan: starter
+    maxmemoryPolicy: noeviction

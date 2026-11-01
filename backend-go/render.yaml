@@ -1,0 +1,123 @@
+# Render Blueprint — VoiceBridge backend (api + media worker + scheduler).
+#
+# Deploy: Render Dashboard → New → Blueprint → pick the repo → set Root
+# Directory to `backend-go` (where this file lives). Render then creates:
+#
+#   vb-api        web service        REST control plane  (Dockerfile.api)
+#   vb-worker     background worker  media worker        (Dockerfile.worker)
+#   vb-scheduler  background worker  room TTL reaper     (Dockerfile.scheduler)
+#   vb-postgres   PostgreSQL 16      rooms / participants / usage
+#   vb-cache      Key Value (Redis)  leases + room events
+#
+# Variables marked `sync: false` must be filled in the dashboard on first
+# deploy (Render prompts for them). See README "Deploy: backend on Render".
+
+databases:
+  - name: vb-postgres
+    databaseName: voicebridge
+    plan: starter
+    postgresMajor: "16"
+
+services:
+  # ── REST control plane ────────────────────────────────────────────────
+  - type: web
+    name: vb-api
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.api
+    plan: starter
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: LIVEKIT_HOST
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: PALABRA_CLIENT_ID
+        sync: false
+      - key: PALABRA_CLIENT_SECRET
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false          # e.g. https://your-app.vercel.app
+      - key: PUBLIC_BASE_URL
+        sync: false          # e.g. https://your-app.vercel.app (invite links)
+      - key: PARTICIPANT_TOKEN_SECRET
+        generateValue: true  # copy this value into vb-worker / vb-scheduler
+
+  # ── Media worker: LiveKit subscribe → S2S → publish ──────────────────
+  - type: worker
+    name: vb-worker
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.worker
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: LIVEKIT_HOST
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: PALABRA_CLIENT_ID
+        sync: false
+      - key: PALABRA_CLIENT_SECRET
+        sync: false
+      - key: PARTICIPANT_TOKEN_SECRET
+        sync: false          # must equal the value generated for vb-api
+
+  # ── Scheduler: room TTL expiry + lease maintenance ───────────────────
+  - type: worker
+    name: vb-scheduler
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.scheduler
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vb-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vb-cache
+          property: connectionString
+      - key: LIVEKIT_HOST
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: PARTICIPANT_TOKEN_SECRET
+        sync: false          # must equal the value generated for vb-api

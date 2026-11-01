@@ -1,0 +1,83 @@
+# compose.yaml — local development stack for the backend.
+#
+#   cd backend-go && docker compose -f deploy/compose.yaml up --build
+#
+# Starts Postgres + Redis + API + worker + scheduler. The worker runs against
+# the IN-PROCESS FAKE translation engine (PALABRA_WS_ENDPOINT=fake://) so you
+# can exercise the full pipeline without provider credentials. For real
+# translations set PALABRA_WS_ENDPOINT / _AUTH_ENDPOINT / _CLIENT_ID /
+# _CLIENT_SECRET in .env (see .env.example) and remove the fake overrides.
+name: voicebridge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: translator
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d translator"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    environment: &backend-env
+      APP_ENV: dev
+      HTTP_ADDR: ":8080"
+      LOG_FORMAT: console
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/translator?sslmode=disable
+      REDIS_ADDR: redis:6379
+      CORS_ALLOWED_ORIGINS: "*"
+      LIVEKIT_HOST: ${LIVEKIT_HOST:-wss://localhost.invalid}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-devsecret}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    environment:
+      <<: *backend-env
+      # Offline fake translation engine (no provider credentials needed):
+      PALABRA_WS_ENDPOINT: fake://
+      PALABRA_SKIP_AUTH: "true"
+      WORKER_ID: worker-local-1
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.scheduler
+    environment:
+      <<: *backend-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  pgdata:
