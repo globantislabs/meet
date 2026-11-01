@@ -6,17 +6,18 @@
 #   vb-api        web service        REST control plane  (Dockerfile.api)
 #   vb-worker     background worker  media worker        (Dockerfile.worker)
 #   vb-scheduler  background worker  room TTL reaper     (Dockerfile.scheduler)
-#   vb-postgres   PostgreSQL 16      rooms / participants / usage
+#   vb-postgres   PostgreSQL         rooms / participants / usage
 #   vb-cache      Key Value (Redis)  leases + room events
 #
 # Variables marked `sync: false` must be filled in the dashboard on first
 # deploy (Render prompts for them). See README "Deploy: backend on Render".
 
+# NOTE: postgresMajor/postgresMajorVersion are no longer valid Blueprint
+# fields — Render provisions its default supported Postgres major version.
 databases:
   - name: vb-postgres
     databaseName: voicebridge
     plan: starter
-    postgresMajor: "16"
 
 services:
   # ── REST control plane ────────────────────────────────────────────────
@@ -24,6 +25,7 @@ services:
     name: vb-api
     runtime: docker
     dockerfilePath: ./deploy/Dockerfile.api
+    dockerContext: .
     plan: starter
     healthCheckPath: /v1/health
     autoDeploy: true
@@ -63,6 +65,7 @@ services:
     name: vb-worker
     runtime: docker
     dockerfilePath: ./deploy/Dockerfile.worker
+    dockerContext: .
     plan: starter
     autoDeploy: true
     envVars:
@@ -97,6 +100,7 @@ services:
     name: vb-scheduler
     runtime: docker
     dockerfilePath: ./deploy/Dockerfile.scheduler
+    dockerContext: .
     plan: starter
     autoDeploy: true
     envVars:
@@ -121,3 +125,9 @@ services:
         sync: false
       - key: PARTICIPANT_TOKEN_SECRET
         sync: false          # must equal the value generated for vb-api
+
+# ── Key Value (Redis-compatible): room leases + events ─────────────────
+keyvalue:
+  - name: vb-cache
+    plan: starter
+    maxmemoryPolicy: noeviction
