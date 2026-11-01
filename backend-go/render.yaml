@@ -131,3 +131,4 @@ services:
     name: vb-cache
     plan: starter
     maxmemoryPolicy: noeviction
+    ipAllowList: []   # internal-only: reachable by this blueprint's services
