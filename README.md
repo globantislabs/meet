@@ -100,11 +100,44 @@ product UI. Light theme, audio-first interface per the blueprint (§11).
    ```
    (or run it from your machine with the connection string from Render).
 
-### Option B — Manual services
+### Option B — Manual services (no Blueprint)
 
-Create the same services by hand from `backend-go/deploy/Dockerfile.*` with
-**Root Directory = repository root** and the env vars from
-`backend-go/.env.example`.
+Create the five resources by hand. Use the **same region** for all of them so
+internal URLs work.
+
+1. **Postgres** — New → Postgres → name `vb-postgres`, plan `basic-256mb`
+   (or Starter). Copy the **Internal Database URL** from the Connect panel.
+2. **Key Value** — New → Key Value → name `vb-cache`, plan `starter`,
+   maxmemory policy `noeviction`, **internal connections only** (no public
+   allow list). Copy the **Internal Connection String**.
+3. **API** — New → Web Service → build from Git → repo, **Root Directory =
+   `backend-go`**, Runtime `Docker`, Dockerfile `./deploy/Dockerfile.api`,
+   health check `/v1/health`. Env vars:
+   `APP_ENV=production`, `HTTP_ADDR=:8080`, `LOG_FORMAT=json`,
+   `DATABASE_URL` (Postgres internal URL), `REDIS_URL` (Key Value string),
+   `LIVEKIT_HOST` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`,
+   `PARTICIPANT_TOKEN_SECRET` (generate a long random value — worker and
+   scheduler must reuse the **same** value),
+   `CORS_ALLOWED_ORIGINS=https://<app>.vercel.app`,
+   `PUBLIC_BASE_URL=https://<app>.vercel.app`,
+   `MAX_ROOM_SIZE=8`, `RATE_LIMIT_RPS=2`, `RATE_LIMIT_BURST=10`.
+4. **Media worker** — New → Background Worker → same root, Dockerfile
+   `./deploy/Dockerfile.worker`, plan **Standard** (audio pipeline wants
+   ≥ 1 vCPU / 2 GB). Same `DATABASE_URL` / `REDIS_URL` / `LIVEKIT_*` /
+   `PARTICIPANT_TOKEN_SECRET`, plus `PALABRA_CLIENT_ID` /
+   `PALABRA_CLIENT_SECRET`, `PALABRA_WS_ENDPOINT=wss://wss.palabra.ai/ws/`,
+   `PALABRA_AUTH_ENDPOINT=https://auth.palabra.ai/access-token`,
+   `PALABRA_SESSION_LIMIT=64`, `WORKER_ID=worker-render-1`,
+   `MAX_ROOM_SIZE=8`.
+5. **Scheduler** — New → Background Worker → same root, Dockerfile
+   `./deploy/Dockerfile.scheduler`, plan `starter`. Needs `DATABASE_URL`,
+   `REDIS_URL`, `WORKER_HEARTBEAT_TTL=30s` only.
+6. **Migrate once** from your machine:
+   ```bash
+   psql "<postgres-external-url>" -f backend-go/migrations/0001_init.sql
+   ```
+7. After creation, every push to `main` auto-deploys; force one from the
+   dashboard via service → **Manual Deploy → Deploy latest commit**.
 
 ### Verify the backend
 
